@@ -120,6 +120,29 @@ Server received it&amp;rsquo;s 200 bytes of data and sent POST request to &lt;a 
 &lt;p&gt;When attacker redirects a victim, browser makes another request.&lt;/p&gt;
 &lt;p&gt;But luckily for an attacker, the browser already have a response waiting in a connection pool (in our example response contains XSS payload that will be triggered in the context of website where victim was redirected).&lt;/p&gt;
 &lt;p&gt;As the attacker can redirect a victim to any Front Door powered website and forge the response I think this can be called a &amp;ldquo;Universal&amp;rdquo; XSS :)&lt;/p&gt;
+&lt;h1 id=&#34;timeline&#34;&gt;Timeline&lt;/h1&gt;
+&lt;table&gt;
+&lt;thead&gt;
+&lt;tr&gt;
+&lt;th&gt;Date&lt;/th&gt;
+&lt;th&gt;Action&lt;/th&gt;
+&lt;/tr&gt;
+&lt;/thead&gt;
+&lt;tbody&gt;
+&lt;tr&gt;
+&lt;td&gt;8 May 2023&lt;/td&gt;
+&lt;td&gt;Reported to Microsoft&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;27 June 2023&lt;/td&gt;
+&lt;td&gt;Vulnerability fixed&lt;/td&gt;
+&lt;/tr&gt;
+&lt;tr&gt;
+&lt;td&gt;5 July 2023&lt;/td&gt;
+&lt;td&gt;Bounty paid ($7500)&lt;/td&gt;
+&lt;/tr&gt;
+&lt;/tbody&gt;
+&lt;/table&gt;
 </content>
     </item>
     
